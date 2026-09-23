@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": [
+        "-c",
+        "PATH=/Users/aairavkalra/.nvm/versions/node/v24.21.0/bin:$PATH npm run dev"
+      ],
+      "port": 3000
+    }
+  ]
+}
