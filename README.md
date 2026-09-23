@@ -14,6 +14,12 @@ Two pieces, deployed separately:
   `yt-dlp` (audio extraction) and `ffmpeg` (MP3 encoding + ID3 tagging) as child
   processes.
 
+A decorative extra: the bottom of the page shows album art from your real Last.fm
+top artists, bouncing around. `/api/top-artists` (server-side, keeps the Last.fm key
+private) fetches your top artists, then the browser looks up cover art per artist via
+the iTunes Search API (no key needed). Entirely optional — leave `LASTFM_API_KEY` /
+`LASTFM_USERNAME` unset and it just doesn't render.
+
 **Why not run yt-dlp/ffmpeg directly inside a Vercel function?** It's tempting since
 Vercel's function size limit is 250MB unzipped, which technically fits `yt-dlp` +
 a static `ffmpeg` binary. In practice this is a bad fit for the platform: Vercel's

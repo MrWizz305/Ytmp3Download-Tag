@@ -1,22 +1,23 @@
 import Converter from "@/components/Converter";
+import LastfmStats from "@/components/LastfmStats";
 
 export default function Home() {
   return (
-    <main className="flex-1 flex flex-col items-center px-6 py-16 sm:py-24">
-      <div className="w-full max-w-xl">
+    <main className="flex-1 flex flex-col items-center px-6 pt-16 sm:pt-24 pb-56 sm:pb-64">
+      <div className="relative z-10 w-full max-w-xl">
         <header className="mb-10 text-center">
-          <p className="label-caps mb-3">Personal use only</p>
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">
-            YouTube <span className="text-[var(--muted)]">→</span> MP3
+          <h1
+            className="text-2xl sm:text-3xl leading-relaxed"
+            style={{ fontFamily: "var(--font-pixel)" }}
+          >
+            Welcome Aairav,
           </h1>
           <p className="mt-4 text-[var(--muted)] text-base sm:text-lg">
-            Paste a link, set the tags, get a finished MP3.
+            What do you want to listen to today?
           </p>
         </header>
         <Converter />
-        <footer className="mt-16 text-center label-caps opacity-60">
-          No ads · No tracking · Your own audio
-        </footer>
+        <LastfmStats />
       </div>
     </main>
   );

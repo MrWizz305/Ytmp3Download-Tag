@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
-import { Source_Serif_4 } from "next/font/google";
+import { Source_Serif_4, Press_Start_2P } from "next/font/google";
 import "./globals.css";
+import AlbumBounce from "@/components/AlbumBounce";
 
 const sourceSerif = Source_Serif_4({
   variable: "--font-source-serif",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
+});
+
+const pixelFont = Press_Start_2P({
+  variable: "--font-pixel",
+  subsets: ["latin"],
+  weight: "400",
 });
 
 export const metadata: Metadata = {
@@ -19,8 +26,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${sourceSerif.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html
+      lang="en"
+      className={`${sourceSerif.variable} ${pixelFont.variable} h-full antialiased`}
+    >
+      <body className="min-h-full flex flex-col">
+        {children}
+        <AlbumBounce />
+      </body>
     </html>
   );
 }

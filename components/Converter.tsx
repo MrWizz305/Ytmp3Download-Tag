@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import type { VideoInfo } from "@/lib/types";
 import { formatDuration } from "@/lib/youtube";
+import CropModal from "./CropModal";
 
 type CoverMode = "thumbnail" | "upload";
 
@@ -30,6 +31,8 @@ export default function Converter() {
   const [coverMode, setCoverMode] = useState<CoverMode>("thumbnail");
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
+  const [cropModalOpen, setCropModalOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -62,6 +65,8 @@ export default function Converter() {
       setCoverMode("thumbnail");
       setCoverFile(null);
       setCoverPreview(null);
+      setRawImageSrc(null);
+      setCropModalOpen(false);
     } catch {
       setError("Something went wrong reaching the server. Check your connection and try again.");
     } finally {
@@ -71,11 +76,27 @@ export default function Converter() {
 
   function handleCoverFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
+    if (!file) return;
+    const objectUrl = URL.createObjectURL(file);
+    setRawImageSrc(objectUrl);
+    setCropModalOpen(true);
+    e.target.value = "";
+  }
+
+  function handleCropComplete(blob: Blob) {
+    const file = new File([blob], "cover.jpg", { type: "image/jpeg" });
+    const previewUrl = URL.createObjectURL(blob);
     setCoverFile(file);
-    if (file) {
-      const objectUrl = URL.createObjectURL(file);
-      setCoverPreview(objectUrl);
-      setCoverMode("upload");
+    setCoverPreview(previewUrl);
+    setCoverMode("upload");
+    setCropModalOpen(false);
+  }
+
+  function handleCropCancel() {
+    setCropModalOpen(false);
+    if (!coverFile) {
+      // No prior successful crop to fall back on - drop the raw source too.
+      setRawImageSrc(null);
     }
   }
 
@@ -203,7 +224,7 @@ export default function Converter() {
               </div>
               <div>
                 <label className="field-label" htmlFor="albumArtist">
-                  Album artist
+                  Artist
                 </label>
                 <input
                   id="albumArtist"
@@ -242,6 +263,15 @@ export default function Converter() {
                     className="hidden"
                     onChange={handleCoverFileChange}
                   />
+                  {coverMode === "upload" && rawImageSrc && (
+                    <button
+                      type="button"
+                      className="text-sm text-[var(--muted)] underline text-left"
+                      onClick={() => setCropModalOpen(true)}
+                    >
+                      Recrop
+                    </button>
+                  )}
                 </div>
                 {activeCoverSrc && (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -270,6 +300,10 @@ export default function Converter() {
             )}
           </button>
         </div>
+      )}
+
+      {cropModalOpen && rawImageSrc && (
+        <CropModal imageSrc={rawImageSrc} onCancel={handleCropCancel} onComplete={handleCropComplete} />
       )}
     </div>
   );
