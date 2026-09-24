@@ -2,10 +2,17 @@
 
 import { useRef, useState } from "react";
 import type { VideoInfo } from "@/lib/types";
-import { formatDuration } from "@/lib/youtube";
+import { formatDuration, parseTimeToSeconds } from "@/lib/youtube";
 import CropModal from "./CropModal";
 
 type CoverMode = "thumbnail" | "upload";
+type OutputFormat = "mp3" | "mp4";
+
+interface DownloadStats {
+  duration: number;
+  bitrateKbps: number;
+  quality: string;
+}
 
 function filenameFromDisposition(disposition: string | null, fallback: string): string {
   if (!disposition) return fallback;
@@ -33,6 +40,10 @@ export default function Converter() {
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
   const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [format, setFormat] = useState<OutputFormat>("mp3");
+  const [lastStats, setLastStats] = useState<DownloadStats | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -67,6 +78,10 @@ export default function Converter() {
       setCoverPreview(null);
       setRawImageSrc(null);
       setCropModalOpen(false);
+      setStartTime("");
+      setEndTime("");
+      setFormat("mp3");
+      setLastStats(null);
     } catch {
       setError("Something went wrong reaching the server. Check your connection and try again.");
     } finally {
@@ -103,6 +118,27 @@ export default function Converter() {
   async function handleConvert() {
     if (!videoInfo || converting) return;
     setError(null);
+    setLastStats(null);
+
+    const parsedStart = parseTimeToSeconds(startTime);
+    const parsedEnd = parseTimeToSeconds(endTime);
+    if (parsedStart === undefined || parsedEnd === undefined) {
+      setError("Start/end times should look like mm:ss or hh:mm:ss.");
+      return;
+    }
+    if (parsedStart !== null && parsedStart >= videoInfo.duration) {
+      setError("Start time is past the end of the video.");
+      return;
+    }
+    if (parsedEnd !== null && parsedEnd > videoInfo.duration) {
+      setError("End time is past the end of the video.");
+      return;
+    }
+    if (parsedStart !== null && parsedEnd !== null && parsedStart >= parsedEnd) {
+      setError("Start time must be before end time.");
+      return;
+    }
+
     setConverting(true);
 
     try {
@@ -114,7 +150,10 @@ export default function Converter() {
       form.set("coverMode", coverMode);
       form.set("thumbnailUrl", videoInfo.thumbnail);
       form.set("duration", String(videoInfo.duration));
-      if (coverMode === "upload" && coverFile) {
+      form.set("format", format);
+      if (parsedStart !== null) form.set("startTime", String(parsedStart));
+      if (parsedEnd !== null) form.set("endTime", String(parsedEnd));
+      if (format === "mp3" && coverMode === "upload" && coverFile) {
         form.set("cover", coverFile);
       }
 
@@ -131,10 +170,21 @@ export default function Converter() {
         return;
       }
 
+      const statDuration = res.headers.get("x-stat-duration");
+      const statBitrate = res.headers.get("x-stat-bitrate");
+      const statQuality = res.headers.get("x-stat-quality");
+      if (statDuration && statBitrate) {
+        setLastStats({
+          duration: Number(statDuration),
+          bitrateKbps: Number(statBitrate),
+          quality: statQuality ?? "",
+        });
+      }
+
       const blob = await res.blob();
       const filename = filenameFromDisposition(
         res.headers.get("content-disposition"),
-        `${(title.trim() || videoInfo.title).replace(/[/\\?%*:|"<>]/g, "")}.mp3`,
+        `${(title.trim() || videoInfo.title).replace(/[/\\?%*:|"<>]/g, "")}.${format}`,
       );
 
       const objectUrl = URL.createObjectURL(blob);
@@ -198,6 +248,28 @@ export default function Converter() {
 
           <div className="flex flex-col gap-4">
             <div>
+              <label className="field-label">Format</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  data-active={format === "mp3"}
+                  onClick={() => setFormat("mp3")}
+                >
+                  MP3 (audio)
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  data-active={format === "mp4"}
+                  onClick={() => setFormat("mp4")}
+                >
+                  MP4 (video)
+                </button>
+              </div>
+            </div>
+
+            <div>
               <label className="field-label" htmlFor="title">
                 Track title
               </label>
@@ -211,78 +283,109 @@ export default function Converter() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="field-label" htmlFor="album">
-                  Album
+                <label className="field-label" htmlFor="startTime">
+                  Start <span className="text-[var(--muted)] font-normal">(optional)</span>
                 </label>
                 <input
-                  id="album"
+                  id="startTime"
                   className="field-input"
-                  placeholder="Optional"
-                  value={album}
-                  onChange={(e) => setAlbum(e.target.value)}
+                  placeholder="0:00"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
                 />
               </div>
               <div>
-                <label className="field-label" htmlFor="albumArtist">
-                  Artist
+                <label className="field-label" htmlFor="endTime">
+                  End <span className="text-[var(--muted)] font-normal">(optional)</span>
                 </label>
                 <input
-                  id="albumArtist"
+                  id="endTime"
                   className="field-input"
-                  placeholder="Optional"
-                  value={albumArtist}
-                  onChange={(e) => setAlbumArtist(e.target.value)}
+                  placeholder={formatDuration(videoInfo.duration) || "0:00"}
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
                 />
               </div>
             </div>
 
-            <div>
-              <label className="field-label">Cover art</label>
-              <div className="flex items-center gap-4">
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    data-active={coverMode === "thumbnail"}
-                    onClick={() => setCoverMode("thumbnail")}
-                  >
-                    Use thumbnail
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    data-active={coverMode === "upload"}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    Upload image
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleCoverFileChange}
-                  />
-                  {coverMode === "upload" && rawImageSrc && (
-                    <button
-                      type="button"
-                      className="text-sm text-[var(--muted)] underline text-left"
-                      onClick={() => setCropModalOpen(true)}
-                    >
-                      Recrop
-                    </button>
-                  )}
+            {format === "mp3" && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="field-label" htmlFor="album">
+                      Album
+                    </label>
+                    <input
+                      id="album"
+                      className="field-input"
+                      placeholder="Optional"
+                      value={album}
+                      onChange={(e) => setAlbum(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="albumArtist">
+                      Artist
+                    </label>
+                    <input
+                      id="albumArtist"
+                      className="field-input"
+                      placeholder="Optional"
+                      value={albumArtist}
+                      onChange={(e) => setAlbumArtist(e.target.value)}
+                    />
+                  </div>
                 </div>
-                {activeCoverSrc && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={activeCoverSrc}
-                    alt="Cover art preview"
-                    className="w-20 h-20 rounded-lg object-cover border border-[var(--border)]"
-                  />
-                )}
-              </div>
-            </div>
+
+                <div>
+                  <label className="field-label">Cover art</label>
+                  <div className="flex items-center gap-4">
+                    <div className="flex flex-col gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        data-active={coverMode === "thumbnail"}
+                        onClick={() => setCoverMode("thumbnail")}
+                      >
+                        Use thumbnail
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        data-active={coverMode === "upload"}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        Upload image
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleCoverFileChange}
+                      />
+                      {coverMode === "upload" && rawImageSrc && (
+                        <button
+                          type="button"
+                          className="text-sm text-[var(--muted)] underline text-left"
+                          onClick={() => setCropModalOpen(true)}
+                        >
+                          Recrop
+                        </button>
+                      )}
+                    </div>
+                    {activeCoverSrc && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={activeCoverSrc}
+                        alt="Cover art preview"
+                        className="w-20 h-20 rounded-lg object-cover border border-[var(--border)]"
+                      />
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <button
@@ -299,6 +402,13 @@ export default function Converter() {
               "Convert & Download"
             )}
           </button>
+
+          {lastStats && (
+            <p className="text-sm text-[var(--muted)] text-center -mt-2">
+              {formatDuration(lastStats.duration)} · {lastStats.bitrateKbps} kbps
+              {lastStats.quality ? ` · ${lastStats.quality}` : ""}
+            </p>
+          )}
         </div>
       )}
 

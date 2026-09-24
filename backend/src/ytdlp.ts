@@ -118,3 +118,41 @@ export async function downloadBestAudio(url: string, workDir: string): Promise<s
 
   return path.join(workDir, downloaded);
 }
+
+/**
+ * Downloads the best available video+audio into workDir as "video.<ext>" and
+ * returns the resulting file path. Prefers separate best video/audio streams
+ * merged into mp4 (needs ffmpeg, which the backend already has); falls back
+ * to a single progressive stream when that's all a client (e.g. the Android
+ * fallback) exposes.
+ */
+export async function downloadBestVideo(url: string, workDir: string): Promise<string> {
+  const outputTemplate = path.join(workDir, "video.%(ext)s");
+
+  const { stderr, code } = await runYtDlpWithFallback(
+    [
+      "-f",
+      "bestvideo+bestaudio/best",
+      "--merge-output-format",
+      "mp4",
+      "--no-playlist",
+      "--no-warnings",
+      "-o",
+      outputTemplate,
+    ],
+    url,
+    240_000,
+  );
+
+  if (code !== 0) {
+    throw mapYtDlpError(stderr);
+  }
+
+  const files = await fs.readdir(workDir);
+  const downloaded = files.find((f) => f.startsWith("video."));
+  if (!downloaded) {
+    throw new AppError(502, "yt-dlp finished but produced no video file.");
+  }
+
+  return path.join(workDir, downloaded);
+}

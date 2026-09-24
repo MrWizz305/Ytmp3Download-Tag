@@ -37,3 +37,24 @@ export function formatDuration(totalSeconds: number): string {
     ? `${hours}:${pad(minutes)}:${pad(seconds)}`
     : `${minutes}:${pad(seconds)}`;
 }
+
+/**
+ * Parses "ss", "mm:ss", or "hh:mm:ss" into total seconds. Returns null for
+ * empty input (meaning "not set") and undefined for unparseable input, so
+ * callers can tell "blank" apart from "invalid".
+ */
+export function parseTimeToSeconds(input: string): number | null | undefined {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (!/^\d+(:\d{1,2}){0,2}$/.test(trimmed)) return undefined;
+
+  const parts = trimmed.split(":").map(Number);
+  if (parts.some((p) => !Number.isFinite(p))) return undefined;
+  if (parts.slice(1).some((p) => p >= 60)) return undefined;
+
+  let seconds = 0;
+  for (const part of parts) {
+    seconds = seconds * 60 + part;
+  }
+  return seconds;
+}

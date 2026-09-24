@@ -6,8 +6,8 @@ import multer from "multer";
 import { MAX_COVER_UPLOAD_BYTES, MAX_DURATION_SECONDS, PORT } from "./config";
 import { requireApiKey } from "./auth";
 import { AppError } from "./errors";
-import { downloadBestAudio, getVideoInfo } from "./ytdlp";
-import { transcodeToMp3 } from "./ffmpeg";
+import { downloadBestAudio, downloadBestVideo, getVideoInfo } from "./ytdlp";
+import { probeMedia, remuxVideoToMp4, transcodeToMp3 } from "./ffmpeg";
 import { writeId3Tags } from "./tagger";
 import { isValidYoutubeUrl } from "./youtube";
 
@@ -36,6 +36,12 @@ app.post("/info", requireApiKey, async (req: Request, res: Response, next: NextF
     next(err);
   }
 });
+
+function parseTrimSeconds(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
 
 function contentDispositionFor(filename: string): string {
   const ascii = filename.replace(/[^\x20-\x7E]/g, "_");
@@ -72,7 +78,19 @@ app.post(
   requireApiKey,
   upload.single("cover"),
   async (req: Request, res: Response, next: NextFunction) => {
-    const { url, title, album, albumArtist, coverMode, thumbnailUrl, duration } = req.body ?? {};
+    const {
+      url,
+      title,
+      album,
+      albumArtist,
+      coverMode,
+      thumbnailUrl,
+      duration,
+      startTime,
+      endTime,
+      format,
+    } = req.body ?? {};
+    const outputFormat = format === "mp4" ? "mp4" : "mp3";
 
     let workDir: string | undefined;
     let cleanedUp = false;
@@ -103,23 +121,61 @@ app.post(
         );
       }
 
-      const cover = await resolveCover(coverMode, thumbnailUrl, req.file);
+      const startSeconds = parseTrimSeconds(startTime);
+      let endSeconds = parseTrimSeconds(endTime);
+      if (endSeconds !== undefined && Number.isFinite(durationSeconds) && durationSeconds > 0) {
+        endSeconds = Math.min(endSeconds, durationSeconds);
+      }
+      if (
+        startSeconds !== undefined &&
+        endSeconds !== undefined &&
+        startSeconds >= endSeconds
+      ) {
+        throw new AppError(400, "Start time must be before end time.");
+      }
 
       workDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ytmp3-"));
-      const inputPath = await downloadBestAudio(url, workDir);
-      const outputPath = path.join(workDir, "audio.mp3");
-      await transcodeToMp3(inputPath, outputPath);
-      await writeId3Tags(outputPath, {
-        title: title.trim(),
-        album: typeof album === "string" ? album.trim() : undefined,
-        albumArtist: typeof albumArtist === "string" ? albumArtist.trim() : undefined,
-        cover,
-      });
+
+      let outputPath: string;
+      let contentType: string;
+
+      if (outputFormat === "mp4") {
+        const inputPath = await downloadBestVideo(url, workDir);
+        outputPath = path.join(workDir, "output.mp4");
+        await remuxVideoToMp4(inputPath, outputPath, title.trim(), { startSeconds, endSeconds });
+        contentType = "video/mp4";
+      } else {
+        const cover = await resolveCover(coverMode, thumbnailUrl, req.file);
+        const inputPath = await downloadBestAudio(url, workDir);
+        outputPath = path.join(workDir, "audio.mp3");
+        await transcodeToMp3(inputPath, outputPath, { startSeconds, endSeconds });
+        await writeId3Tags(outputPath, {
+          title: title.trim(),
+          album: typeof album === "string" ? album.trim() : undefined,
+          albumArtist: typeof albumArtist === "string" ? albumArtist.trim() : undefined,
+          cover,
+        });
+        contentType = "audio/mpeg";
+      }
 
       const stat = await fs.promises.stat(outputPath);
-      res.setHeader("Content-Type", "audio/mpeg");
+      const stats = await probeMedia(outputPath);
+
+      res.setHeader("Content-Type", contentType);
       res.setHeader("Content-Length", stat.size);
-      res.setHeader("Content-Disposition", contentDispositionFor(`${title.trim()}.mp3`));
+      res.setHeader(
+        "Content-Disposition",
+        contentDispositionFor(`${title.trim()}.${outputFormat}`),
+      );
+      if (stats) {
+        res.setHeader("X-Stat-Duration", String(stats.durationSeconds));
+        res.setHeader("X-Stat-Bitrate", String(stats.bitrateKbps));
+        res.setHeader("X-Stat-Quality", stats.quality);
+        res.setHeader(
+          "Access-Control-Expose-Headers",
+          "X-Stat-Duration, X-Stat-Bitrate, X-Stat-Quality",
+        );
+      }
 
       const stream = fs.createReadStream(outputPath);
       stream.pipe(res);

@@ -55,5 +55,10 @@ export async function POST(request: NextRequest) {
   const disposition = backendRes.headers.get("content-disposition");
   if (disposition) headers.set("Content-Disposition", disposition);
 
+  for (const name of ["x-stat-duration", "x-stat-bitrate", "x-stat-quality"]) {
+    const value = backendRes.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+
   return new Response(backendRes.body, { status: 200, headers });
 }
